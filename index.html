@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trip Fuel Cost Calculator (Map)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+body{margin:0;font-family:system-ui,"Segoe UI",Roboto,sans-serif;background:#f5f6f8;color:#1b1f24}
+main{max-width:900px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:0 0 4px}
+.sub{color:#5d6670;margin:0 0 12px;font-size:.9rem}
+#map{height:380px;border-radius:12px;border:1px solid #d5d9de}
+.search{display:flex;gap:8px;margin-bottom:8px}
+input,select,button{font-size:1rem;padding:10px;border:1px solid #d5d9de;border-radius:10px;box-sizing:border-box}
+.search input{flex:1}
+button{background:#0b7a57;color:#fff;border:0;cursor:pointer}
+button.alt{background:#5d6670}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+label{display:block;font-weight:600;font-size:.85rem;margin-bottom:4px}
+.grid input,.grid select{width:100%}
+.result{margin-top:14px;background:#e6f4ee;border-radius:12px;padding:16px}
+.big{font-size:2rem;font-weight:700;color:#0b7a57}
+.stats{display:flex;gap:24px;flex-wrap:wrap;margin-top:8px;font-size:.95rem}
+.stats span{display:block;color:#5d6670;font-size:.75rem}
+#status{margin:8px 0;color:#5d6670;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Trip Fuel Cost Calculator</h1>
+<p class="sub">Click the map to drop pin A (start), then pin B (destination). Drag a pin to adjust it.</p>
+
+<div class="search">
+<input id="q" placeholder="Search a place, e.g. Dolmen Mall Clifton Karachi">
+<button id="go">Search</button>
+<button id="reset" class="alt">Reset pins</button>
+</div>
+<div id="map"></div>
+<div id="status">Click the map to place pin A.</div>
+
+<div class="grid">
+<div><label for="veh">Vehicle</label>
+<select id="veh">
+<option value="45">Motorcycle (~45 km/L)</option>
+<option value="25">Rickshaw (~25 km/L)</option>
+<option value="14" selected>Small car (~14 km/L)</option>
+<option value="11">Sedan (~11 km/L)</option>
+<option value="8">SUV (~8 km/L)</option>
+<option value="custom">Custom…</option>
+</select></div>
+<div><label for="mil">Mileage (km per litre)</label><input id="mil" type="number" step="0.1" min="0.1" value="14"></div>
+<div><label for="price">Petrol price (Rs. per litre)</label><input id="price" type="number" step="0.01" min="0" value="346"></div>
+<div><label for="dist">Distance (km)</label><input id="dist" type="number" step="0.1" min="0" value="0"></div>
+<div><label for="extra">Driver’s charge (Rs. per km)</label><input id="extra" type="number" step="1" min="0" value="0"></div>
+</div>
+<p><label style="display:inline"><input type="checkbox" id="round"> Round trip (double the distance)</label></p>
+
+<p><button id="pso" type="button">Refresh petrol price</button> <span id="psoNote" class="sub"></span></p>
+
+<div class="result">
+<div>Estimated fare (fuel + driver’s charge)</div>
+<div class="big" id="cost">Rs. 0</div>
+<div class="stats">
+<div><span>Fuel only</span><b id="fo">Rs. 0</b></div>
+<div><span>Distance</span><b id="d">0 km</b></div>
+<div><span>Fuel needed</span><b id="l">0 L</b></div>
+<div><span>Cost per km</span><b id="pk">Rs. 0</b></div>
+</div>
+</div>
+<p class="sub">The petrol price updates by itself when you open this file (press Refresh to update it again). If it can’t update, the last saved price is used and you can type one in. You can also type a distance by hand to override the map.</p>
+<div id="psoFrameWrap" hidden style="margin-top:16px">
+<p class="sub">Fuel prices from Hamari Dunya (look for petrol, per litre). If this area stays blank, the site does not allow its page to be shown inside other pages. <a href="https://www.hamaridunya.com/fuel-rates" target="_blank" rel="noopener">Open it in a new tab instead</a>.</p>
+<iframe id="psoFrame" title="Fuel prices" style="width:100%;height:520px;border:1px solid #d5d9de;border-radius:12px;background:#fff"></iframe>
+</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=n=>n.toLocaleString('en-PK',{maximumFractionDigits:2});
+const map=L.map('map').setView([24.8607,67.0011],11);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,attribution:'Tiles © Esri'}).addTo(map);
+
+let pins=[],line=null;
+
+function calc(){
+  let d=parseFloat($('dist').value)||0;
+  if($('round').checked)d*=2;
+  const m=parseFloat($('mil').value)||0, p=parseFloat($('price').value)||0;
+  const extra=parseFloat($('extra').value)||0;
+  const litres=m>0?d/m:0, fuel=litres*p, cost=fuel+d*extra;
+  $('fo').textContent='Rs. '+fmt(Math.round(fuel*100)/100);
+  $('cost').textContent='Rs. '+fmt(Math.round(cost*100)/100);
+  $('d').textContent=fmt(d)+' km';
+  $('l').textContent=fmt(Math.round(litres*100)/100)+' L';
+  $('pk').textContent='Rs. '+fmt(d>0?Math.round(cost/d*100)/100:0);
+}
+
+function straight(a,b){
+  const R=6371,t=x=>x*Math.PI/180;
+  const dLat=t(b.lat-a.lat),dLng=t(b.lng-a.lng);
+  const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+async function route(){
+  if(pins.length<2)return;
+  const a=pins[0].getLatLng(),b=pins[1].getLatLng();
+  $('status').textContent='Finding the driving route…';
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+    const r=await fetch(url);
+    const j=await r.json();
+    if(!j.routes||!j.routes[0])throw new Error('no route');
+    const km=j.routes[0].distance/1000;
+    if(line)map.removeLayer(line);
+    line=L.geoJSON(j.routes[0].geometry,{style:{color:'#0b7a57',weight:5}}).addTo(map);
+    map.fitBounds(line.getBounds(),{padding:[30,30]});
+    $('dist').value=km.toFixed(1);
+    $('status').textContent='Driving distance: '+km.toFixed(1)+' km.';
+  }catch(e){
+    const km=straight(a,b)*1.3;
+    if(line){map.removeLayer(line);line=null}
+    $('dist').value=km.toFixed(1);
+    $('status').textContent='Route service unavailable. Showing an estimate (straight line + 30%): '+km.toFixed(1)+' km.';
+  }
+  calc();
+}
+
+function addPin(latlng){
+  if(pins.length>=2)return;
+  const m=L.marker(latlng,{draggable:true,title:pins.length?'B':'A'}).addTo(map);
+  m.bindTooltip(pins.length?'B':'A',{permanent:true,direction:'top',offset:[-15,-20]});
+  m.on('dragend',route);
+  pins.push(m);
+  $('status').textContent=pins.length===1?'Now click the map to place pin B.':'';
+  route();
+}
+
+function reset(){
+  pins.forEach(p=>map.removeLayer(p));pins=[];
+  if(line){map.removeLayer(line);line=null}
+  $('dist').value=0;$('status').textContent='Click the map to place pin A.';calc();
+}
+
+map.on('click',e=>addPin(e.latlng));
+$('reset').onclick=reset;
+
+async function search(){
+  const q=$('q').value.trim();if(!q)return;
+  $('status').textContent='Searching…';
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
+    const j=await r.json();
+    if(!j[0]){$('status').textContent='Place not found. Try adding the city name.';return}
+    const ll=L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon));
+    map.setView(ll,15);
+    addPin(ll);
+  }catch(e){$('status').textContent='Search failed. Check your internet connection.'}
+}
+$('go').onclick=search;
+$('q').addEventListener('keydown',e=>{if(e.key==='Enter')search()});
+
+$('veh').addEventListener('change',e=>{
+  if(e.target.value!=='custom')$('mil').value=e.target.value;else $('mil').focus();
+  calc();
+});
+const HD_URL='https://www.hamaridunya.com/fuel-rates';
+const SHEET_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vQfva6Tgad_a1gJQ-LFhM9z8HpQySzIKeeAxxlOhUyFAEk-W3VVVR4Nf7erbxdtz6mBuPmAYVQrbGDJ/pub?gid=0&single=true&output=csv';
+let psoLoaded=false;
+function showPanel(){
+  if(!psoLoaded){$('psoFrame').src=HD_URL;psoLoaded=true}
+  $('psoFrameWrap').hidden=false;
+  $('psoFrameWrap').scrollIntoView({behavior:'smooth'});
+}
+const SHEET_ID='10ssUiRpTteO_l42xZAPCJSx8o2MnbHRw9TqwvSVSZPM';
+function sheetJsonp(){
+  return new Promise((resolve,reject)=>{
+    const cb='sheetCb'+Date.now();
+    const sc=document.createElement('script');
+    let t;
+    const done=()=>{clearTimeout(t);delete window[cb];sc.remove()};
+    t=setTimeout(()=>{done();reject(new Error('timed out - is the sheet shared with anyone who has the link?'))},8000);
+    window[cb]=data=>{done();resolve(data)};
+    sc.onerror=()=>{done();reject(new Error('script blocked'))};
+    sc.src='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx=responseHandler:'+cb+'&headers=0&range=E1&_='+Date.now();
+    document.head.appendChild(sc);
+  });
+}
+async function refreshPrice(manual){
+  const note=$('psoNote');
+  note.textContent='Updating price…';
+  try{
+    const d=await sheetJsonp();
+    if(d.status&&d.status!=='ok')throw new Error('sheet not readable');
+    const nums=[];
+    ((d.table&&d.table.rows)||[]).forEach(r=>(r.c||[]).forEach(c=>{if(c&&c.v!=null)nums.push(parseFloat(String(c.v).replace(/[^0-9.]/g,'')))}));
+    ((d.table&&d.table.cols)||[]).forEach(c=>{if(c&&c.label)nums.push(parseFloat(String(c.label).replace(/[^0-9.]/g,'')))});
+    const price=nums.filter(n=>n>100&&n<2000)[0];
+    if(!(price>100&&price<2000))throw new Error('unexpected value');
+    $('price').value=price;
+    try{localStorage.setItem('fuelPrice',price)}catch(_){}
+    calc();
+    note.textContent='Petrol price updated automatically: Rs. '+price+' per litre.';
+  }catch(e){
+    const why=e&&e.name==='AbortError'?'timed out':(e&&e.message)||'unknown';
+    note.textContent='Could not update automatically ('+why+'), so the last saved price is being used.'+(manual?' The fuel price page is shown below: find "Shell Petrol, per litre" and type it into the price box.':'');
+    if(manual)showPanel();
+  }
+}
+$('pso').onclick=()=>refreshPrice(true);
+try{const s=localStorage.getItem('fuelPrice');if(s)$('price').value=s}catch(e){}
+$('price').addEventListener('input',()=>{try{localStorage.setItem('fuelPrice',$('price').value)}catch(e){}});
+['dist','round','mil','price','extra'].forEach(id=>$(id).addEventListener('input',calc));
+calc();
+refreshPrice(false);
+</script>
+</body>
+</html>
